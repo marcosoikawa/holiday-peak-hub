@@ -1,5 +1,6 @@
 """Cart routes."""
 
+import logging
 from datetime import datetime, timezone
 
 from crud_service.auth import User, get_current_user
@@ -12,6 +13,7 @@ router = APIRouter()
 cart_repo = CartRepository()
 product_repo = ProductRepository()
 agent_client = get_agent_client()
+logger = logging.getLogger(__name__)
 event_publisher = get_event_publisher()
 
 
@@ -112,7 +114,11 @@ async def add_to_cart(
     except HTTPException:
         raise
     except Exception:
-        pass  # agent unavailable — continue with optimistic add
+        logger.warning(
+            "Inventory reservation validation unavailable for product_id=%s; continuing with optimistic add",
+            request.product_id,
+            exc_info=True,
+        )
 
     # Get or create cart
     cart = await cart_repo.get_by_user(current_user.user_id)
