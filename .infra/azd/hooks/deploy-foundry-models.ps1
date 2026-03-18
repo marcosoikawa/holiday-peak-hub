@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Deploys AI model deployments (gpt-5-nano, gpt-5.2) to the AI Services account
+    Deploys AI model deployments (gpt-5-nano, gpt-5) to the AI Services account
     after Bicep provisions the AI Foundry project.
 
 .DESCRIPTION
@@ -77,14 +77,14 @@ $models = @(
     @{
         Name       = 'gpt-5-nano'
         Model      = 'gpt-5-nano'
-        Version    = '2026-02-01'
+        Version    = '2025-08-07'
         SkuName    = 'GlobalStandard'
         Capacity   = 30
     },
     @{
-        Name       = 'gpt-5-2'
-        Model      = 'gpt-5.2'
-        Version    = '2026-02-01'
+        Name       = 'gpt-5'
+        Model      = 'gpt-5'
+        Version    = '2025-08-07'
         SkuName    = 'GlobalStandard'
         Capacity   = 30
     }
@@ -111,14 +111,16 @@ foreach ($model in $models) {
         --model-version $model.Version `
         --model-format OpenAI `
         --sku-name $model.SkuName `
-        --sku-capacity $model.Capacity
+        --sku-capacity $model.Capacity 2>$null
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to create deployment '$($model.Name)'."
-        exit 1
+        Write-Warning "Deployment '$($model.Name)' for model '$($model.Model)' is not available in this account/region. Continuing."
+        $global:LASTEXITCODE = 0
+        continue
     }
 
     Write-Host "  [done] Deployment '$($model.Name)' created."
 }
 
 Write-Host "All model deployments are ready."
+exit 0

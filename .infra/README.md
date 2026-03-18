@@ -52,18 +52,18 @@ A single shared stack is deployed first, and all 22 services (21 agents + 1 CRUD
 **azd provisioning**:
 
 ```bash
-azd env set deployShared true -e dev
-azd env set deployStatic false -e dev
-azd env set environment dev -e dev
-azd env set location eastus2 -e dev
-azd provision -e dev
+azd env set deployShared true -e <environment>
+azd env set deployStatic false -e <environment>
+azd env set environment <environment> -e <environment>
+azd env set location <location> -e <environment>
+azd provision -e <environment>
 ```
 
 **azd service deployment**:
 
 ```bash
-azd deploy --service crud-service -e dev
-azd deploy --all -e dev
+azd deploy --service crud-service -e <environment>
+azd deploy --all -e <environment>
 ```
 
 ---
@@ -119,7 +119,7 @@ All resources use AVM (Azure Verified Modules) and deploy to **eastus2** by defa
 | `aks-crud` | `10.0.8.0/24` | AKS CRUD node pool |
 | `apim` | `10.0.9.0/24` | API Management (prod: Internal VNet) |
 | `private-endpoints` | `10.0.10.0/24` | Private endpoint NICs |
-| `agc` | `10.0.11.0/24` by default | Delegated subnet for Application Gateway for Containers |
+| `agc` | `10.0.12.0/24` by default | Delegated subnet for Application Gateway for Containers |
 
 ### RBAC Assignments (6)
 
@@ -150,39 +150,44 @@ All resources use AVM (Azure Verified Modules) and deploy to **eastus2** by defa
 cd modules/shared-infrastructure
 
 az deployment sub create \
-  --name shared-infra-dev \
-  --location eastus2 \
+  --name shared-infra-<environment> \
+  --location <location> \
   --template-file shared-infrastructure-main.bicep \
-  --parameters environment=dev location=eastus2
+  --parameters environment=<environment> location=<location>
 ```
 
-**What this creates**: AKS cluster (3 pools), ACR, PostgreSQL (CRUD), Cosmos DB (agent warm memory), Event Hubs (5 topics), Redis, Storage, Key Vault, APIM, AI Foundry Project, VNet (5 subnets + 5 NSGs), 8 Private DNS Zones with Private Endpoints, App Insights, Log Analytics, 6 RBAC assignments
+**What this creates**: AKS cluster (3 pools), ACR, PostgreSQL (CRUD), Cosmos DB (agent warm memory), Event Hubs (5 topics), Redis, Storage, Key Vault, APIM, Azure AI Search service, AI Foundry Project, VNet (5 subnets + 5 NSGs), 8 Private DNS Zones with Private Endpoints, App Insights, Log Analytics, 6 RBAC assignments
 
 When `agcSupportEnabled` is on, shared infrastructure also creates the delegated AGC subnet, the ALB controller workload identity, and the RBAC required for later AGC route publication. The `azd` postprovision flow then installs the ALB controller into AKS without cutting over any workloads.
 
+The `catalog-products` Azure AI Search index is ensured during `azd` `postprovision`, after the search service is reachable, to avoid nested ARM child-resource timing conflicts during `azd provision`.
+
 **Duration**: ~25 minutes | **Cost**: see [Cost Estimates](#-cost-estimates)
 
-### 2. Deploy Frontend (Static Web App)
+### 2. Provision Frontend (Static Web App)
 
 ```bash
 cd modules/static-web-app
 
 az deployment sub create \
-  --name static-web-app-dev \
-  --location eastus2 \
+  --name static-web-app-<environment> \
+  --location <location> \
   --template-file static-web-app-main.bicep \
-  --parameters environment=dev \
-               resourceGroupName=holidaypeakhub-dev-rg
+  --parameters environment=<environment> \
+               projectName=holidaypeakhub405 \
+               resourceGroupName=holidaypeakhub405-<environment>-rg
 ```
 
-**Duration**: ~5 minutes | **Cost**: Free (dev), ~$9/month (prod)
+Publish the UI with `.github/workflows/deploy-ui-swa.yml`. The canonical UI path is workflow-driven and validates the exact Static Web App name before publishing.
+
+**Duration**: ~5 minutes | **Cost**: Free (non-prod), ~$9/month (prod)
 
 ### 3. Connect to AKS
 
 ```bash
 az aks get-credentials \
-  --resource-group holidaypeakhub-dev-rg \
-  --name holidaypeakhub-dev-aks
+  --resource-group holidaypeakhub405-<environment>-rg \
+  --name holidaypeakhub405-<environment>-aks
 
 kubectl get nodes  # Verify connection
 ```
@@ -191,10 +196,10 @@ kubectl get nodes  # Verify connection
 
 ```bash
 # Deploy CRUD service first
-azd deploy --service crud-service -e dev
+azd deploy --service crud-service -e <environment>
 
 # Deploy all agent services
-azd deploy --all -e dev
+azd deploy --all -e <environment>
 ```
 
 ---
@@ -209,10 +214,10 @@ Use this checklist to deploy the full stack in order.
 cd modules/shared-infrastructure
 
 az deployment sub create \
-  --name shared-infra-dev \
-  --location eastus2 \
+  --name shared-infra-<environment> \
+  --location <location> \
   --template-file shared-infrastructure-main.bicep \
-  --parameters environment=dev location=eastus2
+  --parameters environment=<environment> location=<location>
 ```
 
 **2) Static Web App**
@@ -221,40 +226,43 @@ az deployment sub create \
 cd modules/static-web-app
 
 az deployment sub create \
-  --name static-web-app-dev \
-  --location eastus2 \
+  --name static-web-app-<environment> \
+  --location <location> \
   --template-file static-web-app-main.bicep \
-  --parameters environment=dev \
-               resourceGroupName=holidaypeakhub-dev-rg
+  --parameters environment=<environment> \
+               projectName=holidaypeakhub405 \
+               resourceGroupName=holidaypeakhub405-<environment>-rg
 ```
+
+Then publish the UI with `.github/workflows/deploy-ui-swa.yml`.
 
 **3) Services (AKS workloads)**
 
 ```bash
 az aks get-credentials \
-  --resource-group holidaypeakhub-dev-rg \
-  --name holidaypeakhub-dev-aks
+  --resource-group holidaypeakhub405-<environment>-rg \
+  --name holidaypeakhub405-<environment>-aks
 
 # Generate CRUD env from azd values (Linux/macOS)
-FORCE=true ./.infra/azd/hooks/generate-crud-env.sh dev
+FORCE=true ./.infra/azd/hooks/generate-crud-env.sh <environment>
 
-azd deploy --service crud-service -e dev
-azd deploy --all -e dev
+azd deploy --service crud-service -e <environment>
+azd deploy --all -e <environment>
 ```
 
 On Windows, use:
 
 ```powershell
-pwsh ./.infra/azd/hooks/generate-crud-env.ps1 -EnvironmentName dev -Force
+pwsh ./.infra/azd/hooks/generate-crud-env.ps1 -EnvironmentName <environment> -Force
 ```
 
 **azd Shortcut (provision + deploy)**:
 
 ```bash
-azd env set deployShared true -e dev
-azd env set deployStatic true -e dev
-azd env set location eastus2 -e dev
-azd up -e dev
+azd env set deployShared true -e <environment>
+azd env set deployStatic true -e <environment>
+azd env set location <location> -e <environment>
+azd up -e <environment>
 ```
 
 ---
@@ -265,24 +273,23 @@ Before deploying services, configure AKS credentials:
 
 ```bash
 az aks get-credentials \
-  --resource-group holidaypeakhub-dev-rg \
-  --name holidaypeakhub-dev-aks
+  --resource-group holidaypeakhub405-<environment>-rg \
+  --name holidaypeakhub405-<environment>-aks
 ```
 
 Deploy a single service:
 
 ```bash
-azd deploy --service crud-service -e dev
+azd deploy --service crud-service -e <environment>
 ```
 
 Deploy all services:
 
 ```bash
-azd deploy --all -e dev
+azd deploy --all -e <environment>
 ```
 
-After each deploy, `azd` runs `./.infra/azd/hooks/sync-apim-agents.*` via a global `postdeploy` hook.
-This keeps APIM aligned with all AKS agent services declared in `azure.yaml`.
+The reusable deployment workflow runs APIM sync, Foundry-agent reconciliation, and API smoke tests as explicit jobs after backend deployment. `azd` no longer owns those global postdeploy side effects, which keeps UI-only publication isolated.
 
 Manual run (if needed):
 
@@ -295,10 +302,10 @@ pwsh ./.infra/azd/hooks/sync-apim-agents.ps1
 Optional env overrides (stored in `.azure/<env>/.env`):
 
 ```bash
-azd env set K8S_NAMESPACE holiday-peak -e dev
-azd env set IMAGE_PREFIX ghcr.io/azure-samples -e dev
-azd env set IMAGE_TAG latest -e dev
-azd env set KEDA_ENABLED false -e dev
+azd env set K8S_NAMESPACE holiday-peak -e <environment>
+azd env set IMAGE_PREFIX ghcr.io/azure-samples -e <environment>
+azd env set IMAGE_TAG latest -e <environment>
+azd env set KEDA_ENABLED false -e <environment>
 ```
 
 ---
@@ -367,13 +374,13 @@ az role assignment create \
 ```bash
 # Stop cluster (deallocates all nodes, keeps config)
 az aks stop \
-  --resource-group holidaypeakhub-dev-rg \
-  --name holidaypeakhub-dev-aks
+  --resource-group holidaypeakhub405-<environment>-rg \
+  --name holidaypeakhub405-<environment>-aks
 
 # Start cluster
 az aks start \
-  --resource-group holidaypeakhub-dev-rg \
-  --name holidaypeakhub-dev-aks
+  --resource-group holidaypeakhub405-<environment>-rg \
+  --name holidaypeakhub405-<environment>-aks
 
 # Check power state
 az aks show -g holidaypeakhub-{env}-rg -n holidaypeakhub-{env}-aks \
@@ -412,13 +419,13 @@ az aks show -g holidaypeakhub-{env}-rg -n holidaypeakhub-{env}-aks \
 
 # Enable public access (dev/demo — required for local kubectl)
 az resource update \
-  --ids $(az aks show -g holidaypeakhub-dev-rg -n holidaypeakhub-dev-aks --query id -o tsv) \
+  --ids $(az aks show -g holidaypeakhub405-<environment>-rg -n holidaypeakhub405-<environment>-aks --query id -o tsv) \
   --set properties.publicNetworkAccess=Enabled \
   --api-version 2024-10-01
 
 # Disable public access (production — use az aks command invoke or VPN)
 az resource update \
-  --ids $(az aks show -g holidaypeakhub-prod-rg -n holidaypeakhub-prod-aks --query id -o tsv) \
+  --ids $(az aks show -g holidaypeakhub405-prod-rg -n holidaypeakhub405-prod-aks --query id -o tsv) \
   --set properties.publicNetworkAccess=Disabled \
   --api-version 2024-10-01
 ```
@@ -810,8 +817,8 @@ kubectl delete namespace holiday-peak
 
 ```bash
 az aks delete \
-  --resource-group holidaypeakhub-dev-rg \
-  --name holidaypeakhub-dev-aks \
+  --resource-group holidaypeakhub405-<environment>-rg \
+  --name holidaypeakhub405-<environment>-aks \
   --yes --no-wait
 ```
 
@@ -997,7 +1004,7 @@ kubectl run test-cosmos --image=mcr.microsoft.com/azure-cli --restart=Never --rm
 
 # Test PostgreSQL endpoint reachability (CRUD database)
 kubectl run test-postgres --image=postgres:16 --restart=Never --rm -it \
-  --command -- bash -c "pg_isready -h holidaypeakhub-dev-postgres.postgres.database.azure.com -p 5432"
+  --command -- bash -c "pg_isready -h holidaypeakhub405-<environment>-postgres.postgres.database.azure.com -p 5432"
 
 # Test Event Hubs access via Managed Identity
 kubectl run test-eventhub --image=mcr.microsoft.com/azure-cli --restart=Never --rm -it \
@@ -1010,18 +1017,18 @@ kubectl run test-eventhub --image=mcr.microsoft.com/azure-cli --restart=Never --
 ```bash
 # From within AKS, verify DNS resolution to private IPs
 kubectl run test-dns --image=busybox --restart=Never --rm -it \
-  --command -- nslookup holidaypeakhub-dev-postgres.postgres.database.azure.com
+  --command -- nslookup holidaypeakhub405-<environment>-postgres.postgres.database.azure.com
 
 kubectl run test-dns-cosmos --image=busybox --restart=Never --rm -it \
-  --command -- nslookup holidaypeakhub-dev-cosmos.documents.azure.com
+  --command -- nslookup holidaypeakhub405-<environment>-cosmos.documents.azure.com
 ```
 
 ### Validate Static Web App
 
 ```bash
 az staticwebapp show \
-  --name holidaypeakhub-ui-dev \
-  --resource-group holidaypeakhub-dev-rg \
+  --name holidaypeakhub405-ui-<environment> \
+  --resource-group holidaypeakhub405-<environment>-rg \
   --query defaultHostname -o tsv
 ```
 

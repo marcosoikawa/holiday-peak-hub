@@ -3,7 +3,7 @@ targetScope = 'subscription'
 param subscriptionId string = subscription().subscriptionId
 param location string = 'eastus2'
 param environment string = 'dev' // dev, staging, prod
-param projectName string = 'holidaypeakhub'
+param projectName string = 'holidaypeakhub405'
 @description('Optional override for Key Vault name (3-24 chars, lowercase letters, numbers, and hyphens). Leave empty to use default naming.')
 param keyVaultNameOverride string = ''
 @description('Enable the legacy AKS Web App Routing addon. Keep disabled for the AGC target edge posture.')
@@ -11,7 +11,7 @@ param aksWebApplicationRoutingEnabled bool = false
 @description('Enable Application Gateway for Containers shared-infrastructure prerequisites for the dev environment.')
 param agcSupportEnabled bool = environment == 'dev'
 @description('CIDR prefix for the delegated AGC subnet. Must provide at least 256 available IPs.')
-param agcSubnetAddressPrefix string = '10.0.11.0/24'
+param agcSubnetAddressPrefix string = '10.0.12.0/24'
 @secure()
 @description('Optional PostgreSQL administrator password for CRUD database.')
 param postgresAdminPassword string = ''

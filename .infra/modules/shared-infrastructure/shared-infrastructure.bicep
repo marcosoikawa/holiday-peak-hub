@@ -3,7 +3,7 @@ targetScope = 'resourceGroup'
 param location string = resourceGroup().location
 param environment string = 'dev' // dev, staging, prod
 @minLength(5)
-param projectName string = 'holidaypeakhub'
+param projectName string = 'holidaypeakhub405'
 @description('Optional override for Key Vault name (3-24 chars, lowercase letters, numbers, and hyphens). Leave empty to use default naming.')
 param keyVaultNameOverride string = ''
 @description('AKS Kubernetes version; leave empty to use Azure default')
@@ -13,7 +13,7 @@ param aksWebApplicationRoutingEnabled bool = false
 @description('Enable Application Gateway for Containers shared-infrastructure prerequisites for the dev environment.')
 param agcSupportEnabled bool = environment == 'dev'
 @description('CIDR prefix for the delegated AGC subnet. Must provide at least 256 available IPs.')
-param agcSubnetAddressPrefix string = '10.0.11.0/24'
+param agcSubnetAddressPrefix string = '10.0.12.0/24'
 @secure()
 @description('PostgreSQL administrator password for CRUD transactional database. Leave empty to auto-generate a deterministic dev password.')
 param postgresAdminPassword string = ''
@@ -672,84 +672,8 @@ module keyVault 'br/public:avm/res/key-vault/vault:0.13.3' = {
   }
 }
 
-// Shared Azure AI Search service for catalog search retrieval
-resource aiSearch 'Microsoft.Search/searchServices@2022-09-01' = {
-  name: aiSearchName
-  location: location
-  sku: {
-    name: environment == 'prod' ? 'standard' : 'basic'
-  }
-  identity: {
-    type: 'SystemAssigned'
-  }
-  properties: {
-    replicaCount: 1
-    partitionCount: 1
-  }
-  tags: tags
-}
-
-resource aiSearchCatalogIndex 'Microsoft.Search/searchServices/indexes@2022-09-01' = {
-  parent: aiSearch
-  name: aiSearchIndexName
-  properties: {
-    fields: [
-      {
-        name: 'id'
-        type: 'Edm.String'
-        key: true
-        filterable: true
-        searchable: false
-      }
-      {
-        name: 'sku'
-        type: 'Edm.String'
-        searchable: true
-        filterable: true
-      }
-      {
-        name: 'title'
-        type: 'Edm.String'
-        searchable: true
-      }
-      {
-        name: 'description'
-        type: 'Edm.String'
-        searchable: true
-      }
-      {
-        name: 'content'
-        type: 'Edm.String'
-        searchable: true
-      }
-      {
-        name: 'category'
-        type: 'Edm.String'
-        searchable: true
-        filterable: true
-      }
-      {
-        name: 'brand'
-        type: 'Edm.String'
-        searchable: true
-        filterable: true
-      }
-      {
-        name: 'availability'
-        type: 'Edm.String'
-        filterable: true
-      }
-      {
-        name: 'price'
-        type: 'Edm.Double'
-        filterable: true
-        sortable: true
-      }
-    ]
-  }
-}
-
 // Azure AI Foundry Project (AVM)
+// The AVM module creates the AI Search service internally (includeAssociatedResources: true).
 module aiFoundry 'br/public:avm/ptn/ai-ml/ai-foundry:0.6.0' = {
   name: 'ai-foundry'
   params: {
@@ -776,7 +700,15 @@ module aiFoundry 'br/public:avm/ptn/ai-ml/ai-foundry:0.6.0' = {
     cosmosDbConfiguration: {
       existingResourceId: cosmos.outputs.resourceId
     }
+    aiSearchConfiguration: {
+      name: aiSearchName
+    }
   }
+}
+
+// Reference the AI Search service created by the AVM ai-foundry module for role assignments.
+resource aiSearchFromFoundry 'Microsoft.Search/searchServices@2022-09-01' existing = {
+  name: aiSearchName
 }
 
 // Azure Kubernetes Service (AVM)
@@ -1023,7 +955,7 @@ resource aksStorageRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 // AKS workload identity -> Azure AI Search (index data query + document upsert/delete)
 resource aksSearchIndexDataContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(resourceGroup().id, aksClusterName, aiSearchName, 'SearchIndexDataContributor')
-  scope: aiSearch
+  scope: aiSearchFromFoundry
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '8ebe5a00-799e-43f5-93ac-243d3dce84a7') // Search Index Data Contributor
     principalId: aks.outputs.?kubeletIdentityObjectId ?? ''
@@ -1053,8 +985,8 @@ output apimName string = apim.outputs.name
 output apimGatewayUrl string = 'https://${apimName}.azure-api.net'
 output aiServicesName string = aiFoundry.outputs.aiServicesName
 output aiProjectName string = aiFoundry.outputs.aiProjectName
-output aiSearchName string = aiSearch.name
-output aiSearchEndpoint string = 'https://${aiSearch.name}.search.windows.net'
+output aiSearchName string = aiSearchName
+output aiSearchEndpoint string = 'https://${aiSearchName}.search.windows.net'
 output aiSearchIndexName string = aiSearchIndexName
 output aiSearchAuthMode string = aiSearchAuthMode
 output appInsightsConnectionString string = appInsights.outputs.connectionString
