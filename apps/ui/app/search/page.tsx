@@ -43,8 +43,8 @@ function getProxyFailureError(error: unknown): ProxyFailureShape | null {
   }
 
   return {
-    failureKind: proxyError.details.proxy.failureKind,
-    remediation: proxyError.details.proxy.remediation,
+    failureKind: proxyFailure.failureKind,
+    remediation: proxyFailure.remediation,
   };
 }
 
@@ -64,7 +64,7 @@ export default function SearchPage() {
     setPreference,
     resolvedMode,
   } = useIntelligentSearch(query, 20);
-  const products = data?.items ?? [];
+  const products = useMemo(() => data?.items ?? [], [data?.items]);
   const relatedProductIds = useMemo(() => {
     const ids = new Set<string>();
     for (const product of products) {
