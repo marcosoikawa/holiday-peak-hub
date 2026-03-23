@@ -129,6 +129,22 @@ export interface Product {
   related?: Array<Record<string, unknown>>;
 }
 
+export interface ProductEnrichmentTriggerRequest {
+  trace_id?: string;
+  trigger_source?: string;
+  reason?: string;
+}
+
+export interface ProductEnrichmentTriggerResponse {
+  status: 'queued';
+  product_id: string;
+  event_type: string;
+  queued_at: string;
+  trace_id?: string | null;
+  trigger_source?: string | null;
+  reason?: string | null;
+}
+
 // Category types
 export interface Category {
   id: string;
@@ -798,6 +814,36 @@ export interface AgentEvaluationsPayload {
   summary: AgentEvaluationSummary;
   trends: AgentEvaluationTrend[];
   comparison: AgentEvaluationComparisonRow[];
+}
+
+export type AdminServiceDomain = 'crm' | 'ecommerce' | 'inventory' | 'logistics' | 'products';
+
+export type AdminServiceStatus = 'healthy' | 'warning' | 'error' | 'unknown';
+
+export interface AdminServiceStatusCard {
+  label: string;
+  value: number | string;
+  status: AdminServiceStatus;
+}
+
+export interface AdminServiceActivityRow {
+  id: string;
+  timestamp: string;
+  event: string;
+  entity: string;
+  status: AgentTraceStatus;
+  latency_ms: number;
+}
+
+export interface AdminServiceDashboard {
+  domain: AdminServiceDomain;
+  service: string;
+  agent_service: string;
+  generated_at: string;
+  tracing_enabled: boolean;
+  status_cards: AdminServiceStatusCard[];
+  activity: AdminServiceActivityRow[];
+  model_usage: AgentModelUsageRow[];
 }
 
 // API Response wrappers
