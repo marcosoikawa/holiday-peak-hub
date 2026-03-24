@@ -332,7 +332,9 @@ export function ProductPageClient({ productId }: { productId: string }) {
         },
       });
 
-      setTriggerEnrichmentStatus(`Queued at ${new Date(response.queued_at).toLocaleString()}`);
+      const parsed = new Date(response.queued_at);
+      const queuedAt = Number.isNaN(parsed.getTime()) ? new Date().toLocaleString() : parsed.toLocaleString();
+      setTriggerEnrichmentStatus(`Queued at ${queuedAt}`);
     } catch (triggerError: unknown) {
       const message =
         triggerError instanceof Error ? triggerError.message : 'Failed to trigger enrichment job.';

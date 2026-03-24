@@ -95,7 +95,8 @@ export function AdminServiceDashboardPage({ domain, service }: AdminServiceDashb
         },
       });
 
-      const queuedAt = new Date(response.queued_at).toLocaleString();
+      const parsed = new Date(response.queued_at);
+      const queuedAt = Number.isNaN(parsed.getTime()) ? new Date().toLocaleString() : parsed.toLocaleString();
       setTriggerStatusMessage(`Queued at ${queuedAt}`);
       await refetch();
     } catch (triggerError: unknown) {
