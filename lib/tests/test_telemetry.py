@@ -174,3 +174,157 @@ class TestFoundryTracer:
         tracer_a = get_foundry_tracer("svc-singleton")
         tracer_b = get_foundry_tracer("svc-singleton")
         assert tracer_a is tracer_b
+
+
+class TestNormalizeOutcomeStatus:
+    """Tests for _normalize_outcome_status()."""
+
+    def test_success_outcomes(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        for outcome in (
+            "success",
+            "ok",
+            "completed",
+            "enrich",
+            "slm",
+            "llm",
+            "keyword",
+            "intelligent",
+            "provider_controlled",
+        ):
+            assert _normalize_outcome_status(outcome) == "success", f"Failed for {outcome}"
+
+    def test_error_outcomes(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        for outcome in ("error", "failed", "failure", "timeout", "exception"):
+            assert _normalize_outcome_status(outcome) == "error", f"Failed for {outcome}"
+
+    def test_skipped_outcomes(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        for outcome in (
+            "skip",
+            "skip_no_gaps",
+            "skipped",
+            "no_upgrade",
+            "noop",
+            "missing_entity_id",
+            "product_not_found",
+        ):
+            assert _normalize_outcome_status(outcome) == "skipped", f"Failed for {outcome}"
+
+    def test_degraded_outcomes(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        for outcome in ("degraded", "fallback", "partial"):
+            assert _normalize_outcome_status(outcome) == "degraded", f"Failed for {outcome}"
+
+    def test_pending_outcomes(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        for outcome in ("pending", "start", "queued", "in_progress"):
+            assert _normalize_outcome_status(outcome) == "pending", f"Failed for {outcome}"
+
+    def test_heuristic_error_detection(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        assert _normalize_outcome_status("connection_error") == "error"
+        assert _normalize_outcome_status("auth_failure") == "error"
+
+    def test_unknown_defaults_to_success(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        assert _normalize_outcome_status("llm_by_complexity") == "success"
+        assert _normalize_outcome_status("llm_by_slm_upgrade") == "success"
+        assert _normalize_outcome_status("some_custom_value") == "success"
+
+    def test_case_insensitive(self):
+        from holiday_peak_lib.utils.telemetry import _normalize_outcome_status
+
+        assert _normalize_outcome_status("SUCCESS") == "success"
+        assert _normalize_outcome_status("Error") == "error"
+        assert _normalize_outcome_status(" PENDING ") == "pending"
+
+
+class TestOutcomeStatusInEvents:
+    """Tests that outcome_status appears in all traced events."""
+
+    def test_model_invocation_has_outcome_status(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_model_invocation(
+            model="gpt-5",
+            target="rich",
+            outcome="success",
+            model_tier="llm",
+            metadata={"elapsed_ms": 10.0},
+        )
+        event = tracer.get_traces(limit=1)[0]
+        assert event["outcome_status"] == "success"
+        assert event["metadata"]["model_tier"] == "llm"
+
+    def test_model_invocation_error_outcome_status(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_model_invocation(
+            model="gpt-5",
+            target="rich",
+            outcome="error",
+            metadata={"elapsed_ms": 5.0, "error": "timeout"},
+        )
+        event = tracer.get_traces(limit=1)[0]
+        assert event["outcome_status"] == "error"
+
+    def test_tool_call_has_outcome_status(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_tool_call(tool_name="search", outcome="success", metadata={})
+        event = tracer.get_traces(limit=1)[0]
+        assert event["outcome_status"] == "success"
+
+    def test_decision_has_outcome_status(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_decision(
+            decision="model_selection",
+            outcome="slm",
+            metadata={"reason": "no_upgrade"},
+        )
+        event = tracer.get_traces(limit=1)[0]
+        assert event["outcome_status"] == "success"
+
+    def test_decision_skipped_outcome_status(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_decision(
+            decision="enrichment_decision",
+            outcome="skip_no_gaps",
+            metadata={"entity_id": "sku-1"},
+        )
+        event = tracer.get_traces(limit=1)[0]
+        assert event["outcome_status"] == "skipped"
+
+    def test_decision_pending_outcome_status(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_decision(
+            decision="invoke_model",
+            outcome="start",
+            metadata={"has_slm": True, "has_llm": True},
+        )
+        event = tracer.get_traces(limit=1)[0]
+        assert event["outcome_status"] == "pending"
+
+    def test_model_tier_defaults_to_unknown(self, monkeypatch):
+        monkeypatch.setenv("FOUNDRY_TRACING_ENABLED", "true")
+        tracer = FoundryTracer("svc", max_events=5)
+        tracer.trace_model_invocation(
+            model="gpt-5",
+            target="rich",
+            outcome="success",
+            metadata={"elapsed_ms": 10.0},
+        )
+        event = tracer.get_traces(limit=1)[0]
+        assert event["metadata"]["model_tier"] == "unknown"

@@ -347,12 +347,23 @@ class BaseRetailAgent(BaseAgent, ABC):
                 "error": error_text,
             }
             try:
+                # Derive model_tier from config
+                model_tier = "unknown"
+                if self.slm and target.name == self.slm.name:
+                    model_tier = "slm"
+                elif self.llm and target.name == self.llm.name:
+                    model_tier = "llm"
+
                 self._get_foundry_tracer().trace_model_invocation(
                     model=target.model,
                     target=target.name,
                     outcome=outcome,
+                    model_tier=model_tier,
                     metadata=trace_metadata,
                 )
+                # Tools are traced with model outcome when they participated
+                # in the invocation; individual tool execution tracking
+                # is handled at the adapter/handler level.
                 self._trace_tools(payload_tools, outcome, trace_metadata)
             except (AttributeError, TypeError, ValueError, RuntimeError):
                 pass
