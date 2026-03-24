@@ -100,6 +100,82 @@ def _extract_latency_ms(metadata: dict[str, Any] | None) -> float | None:
     return None
 
 
+# --- Outcome normalization ---
+_SUCCESS_OUTCOMES = frozenset(
+    {
+        "success",
+        "ok",
+        "completed",
+        "enrich",
+        "slm",
+        "llm",
+        "keyword",
+        "intelligent",
+        "provider_controlled",
+    }
+)
+_ERROR_OUTCOMES = frozenset(
+    {
+        "error",
+        "failed",
+        "failure",
+        "timeout",
+        "exception",
+    }
+)
+_SKIPPED_OUTCOMES = frozenset(
+    {
+        "skip",
+        "skip_no_gaps",
+        "skipped",
+        "no_upgrade",
+        "noop",
+        "missing_entity_id",
+        "product_not_found",
+    }
+)
+_DEGRADED_OUTCOMES = frozenset(
+    {
+        "degraded",
+        "fallback",
+        "partial",
+    }
+)
+_PENDING_OUTCOMES = frozenset(
+    {
+        "pending",
+        "start",
+        "queued",
+        "in_progress",
+    }
+)
+
+
+def _normalize_outcome_status(outcome: str) -> str:
+    """Map a semantic outcome string to a normalized status enum.
+
+    Returns one of: ``success``, ``error``, ``degraded``, ``skipped``, ``pending``.
+    Falls back to ``success`` for unknown positive-sounding outcomes (e.g. model
+    selection results like ``"slm"``, ``"llm_by_complexity"``).
+    """
+    lower = outcome.strip().lower()
+    if lower in _ERROR_OUTCOMES:
+        return "error"
+    if lower in _SKIPPED_OUTCOMES:
+        return "skipped"
+    if lower in _DEGRADED_OUTCOMES:
+        return "degraded"
+    if lower in _PENDING_OUTCOMES:
+        return "pending"
+    if lower in _SUCCESS_OUTCOMES:
+        return "success"
+    # Heuristic: outcomes containing "error" or "fail" are errors
+    if "error" in lower or "fail" in lower:
+        return "error"
+    # Default: treat unrecognized outcomes as success (model selections, etc.)
+    return "success"
+
+
 def _trace_id_from_otel() -> str | None:
     if not _OTEL_AVAILABLE:
         return None
@@ -258,6 +334,7 @@ class FoundryTracer:
             "type": event_type,
             "name": name,
             "outcome": outcome,
+            "outcome_status": _normalize_outcome_status(outcome),
             "metadata": event_metadata,
         }
         with self._lock:
@@ -271,6 +348,7 @@ class FoundryTracer:
         model: str,
         target: str,
         outcome: str,
+        model_tier: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> None:
         self._record(
@@ -279,6 +357,7 @@ class FoundryTracer:
             outcome,
             {
                 "model": model,
+                "model_tier": model_tier or "unknown",
                 **(metadata or {}),
             },
         )
