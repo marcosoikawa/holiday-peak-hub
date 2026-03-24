@@ -882,7 +882,12 @@ function buildEmptyAdminServicePayload(route: AdminServiceRouteMatch): AdminServ
     agent_service: route.agentService,
     generated_at: new Date().toISOString(),
     tracing_enabled: false,
-    status_cards: [],
+    status_cards: [
+      { label: 'Trace events', value: 0, status: 'unknown' as const },
+      { label: 'Avg latency (ms)', value: 0, status: 'unknown' as const },
+      { label: 'Error rate', value: '0%', status: 'unknown' as const },
+      { label: 'Latest evaluation', value: 0, status: 'unknown' as const },
+    ],
     activity: [],
     model_usage: [],
   };
@@ -1105,6 +1110,42 @@ function isStaffReviewRoute(path: string): boolean {
 
 function isEnrichmentMonitorRoute(path: string): boolean {
   return path === '/api/admin/enrichment-monitor' || path.startsWith('/api/admin/enrichment-monitor/');
+}
+
+function isTruthAnalyticsRoute(path: string): boolean {
+  return (
+    path === '/api/truth/analytics/summary'
+    || path === '/api/truth/analytics/completeness'
+    || path === '/api/truth/analytics/throughput'
+  );
+}
+
+function buildTruthAnalyticsFallbackPayload(upstreamPath: string): unknown | null {
+  if (upstreamPath === '/api/truth/analytics/summary') {
+    return {
+      overall_completeness: 0,
+      total_products: 0,
+      enrichment_jobs_processed: 0,
+      auto_approved: 0,
+      sent_to_hitl: 0,
+      queue_pending: 0,
+      queue_approved: 0,
+      queue_rejected: 0,
+      avg_review_time_minutes: 0,
+      acp_exports: 0,
+      ucp_exports: 0,
+    };
+  }
+
+  if (upstreamPath === '/api/truth/analytics/completeness') {
+    return [];
+  }
+
+  if (upstreamPath === '/api/truth/analytics/throughput') {
+    return [];
+  }
+
+  return null;
 }
 
 function parsePositiveInt(value: string | null, fallback: number): number {
@@ -1333,9 +1374,8 @@ async function buildEnrichmentMonitorSecondaryPayload(
     const approved = readNumber(stats, ['approved']) || 0;
     const rejected = readNumber(stats, ['rejected']) || 0;
 
-    if (queueItems.length === 0 && pendingReview === 0 && approved === 0 && rejected === 0) {
-      return null;
-    }
+    // Always return a valid dashboard structure — even with zero data — so the
+    // UI renders the empty state instead of showing a "failed to load" error.
 
     const generatedAt = new Date().toISOString();
     const activeJobs = queueItems.map((item, index) => {
@@ -1593,6 +1633,11 @@ async function proxyRequest(
     && isEnrichmentMonitorRoute(upstreamPath)
     && (upstream.status === 404 || upstream.status >= 500);
 
+  const shouldFallbackTruthAnalytics =
+    method === 'GET'
+    && isTruthAnalyticsRoute(upstreamPath)
+    && (upstream.status === 404 || upstream.status >= 500);
+
   if (shouldFallbackAdminService && adminServiceRoute) {
     const payload = await buildAdminServiceSecondaryPayload({
       route: adminServiceRoute,
@@ -1692,6 +1737,21 @@ async function proxyRequest(
           'x-holiday-peak-proxy': 'next-app-api',
           'x-holiday-peak-proxy-source': sourceKey ?? '',
           'x-holiday-peak-proxy-fallback': 'enrichment-monitor-live-aggregate',
+          'x-holiday-peak-proxy-fallback-upstream-status': String(upstream.status),
+        },
+      });
+    }
+  }
+
+  if (shouldFallbackTruthAnalytics) {
+    const truthPayload = buildTruthAnalyticsFallbackPayload(upstreamPath);
+    if (truthPayload !== null) {
+      return NextResponse.json(truthPayload, {
+        status: 200,
+        headers: {
+          'x-holiday-peak-proxy': 'next-app-api',
+          'x-holiday-peak-proxy-source': sourceKey ?? '',
+          'x-holiday-peak-proxy-fallback': 'truth-analytics-unavailable',
           'x-holiday-peak-proxy-fallback-upstream-status': String(upstream.status),
         },
       });
