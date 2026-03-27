@@ -1,3 +1,4 @@
+@reference "tailwindcss";
 @media (min-width: 768px) {
   .arrow {
     transform: rotate(90deg);
@@ -174,7 +175,7 @@
   .left-sidebar-1 {
     @apply text-sm;
     .badge {
-      @apply hidden !important;
+      display: none !important;
     }
     [data-collapsed="true"][data-background="light"] & {
       ul > li {
@@ -218,3 +219,4 @@
     }
   }
 }
+
