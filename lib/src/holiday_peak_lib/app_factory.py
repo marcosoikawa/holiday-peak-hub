@@ -2,7 +2,7 @@
 
 import os
 from contextlib import asynccontextmanager
-from typing import Any, AsyncContextManager, AsyncIterator, Callable
+from typing import Any, AsyncContextManager, AsyncIterator, Callable, cast
 
 from fastapi import FastAPI, HTTPException
 from holiday_peak_lib.agents import AgentBuilder, BaseRetailAgent, FoundryAgentConfig
@@ -68,8 +68,18 @@ def create_standard_app(
     mcp_setup: Callable[[FastAPIMCPServer, BaseRetailAgent], None] | None = None,
     subscriptions: list[EventHubSubscription] | None = None,
     handlers: dict[str, Any] | None = None,
+    require_foundry_readiness: bool = False,
+    disable_tracing_without_foundry: bool = False,
 ) -> FastAPI:
-    """Create a standard agent app with memory + default Foundry wiring."""
+    """Create a standard agent app with memory + default Foundry wiring.
+
+    Foundry is preferred by default, but readiness enforcement is optional and
+    controlled via ``require_foundry_readiness``.
+
+    Tracing policy is per service. Set ``disable_tracing_without_foundry=True``
+    to disable Foundry tracer collection whenever no callable Foundry target is
+    bound for that service.
+    """
     self_healing_kernel = SelfHealingKernel.from_env(service_name)
     memory_settings = MemorySettings()
     hot_memory = HotMemory(memory_settings.redis_url) if memory_settings.redis_url else None
@@ -113,6 +123,8 @@ def create_standard_app(
         mcp_setup=mcp_setup,
         lifespan=lifespan,
         self_healing_kernel=self_healing_kernel,
+        require_foundry_readiness=require_foundry_readiness,
+        disable_tracing_without_foundry=disable_tracing_without_foundry,
     )
 
 
@@ -129,8 +141,18 @@ def build_service_app(
     mcp_setup: Callable[[FastAPIMCPServer, BaseRetailAgent], None] | None = None,
     lifespan: Callable[[FastAPI], AsyncContextManager[None]] | None = None,
     self_healing_kernel: SelfHealingKernel | None = None,
+    require_foundry_readiness: bool = False,
+    disable_tracing_without_foundry: bool = False,
 ) -> FastAPI:
-    """Return a FastAPI app pre-wired with MCP and required memory tiers."""
+    """Return a FastAPI app pre-wired with MCP and required memory tiers.
+
+    Args:
+        require_foundry_readiness: When ``True``, ``/ready`` and invoke guards
+            enforce Foundry runtime availability for this service.
+        disable_tracing_without_foundry: When ``True``, the Foundry tracer is
+            disabled unless the service has at least one callable Foundry model
+            target bound.
+    """
     logger = configure_logging(app_name=service_name)
     app = FastAPI(title=service_name)
     registry = connector_registry or ConnectorRegistry()
@@ -142,16 +164,21 @@ def build_service_app(
     if hasattr(mcp, "_on_failure"):
         setattr(mcp, "_on_failure", healing_kernel.handle_failure_signal)
     router = RoutingStrategy()
-    builder = (
-        AgentBuilder()
-        .with_agent(agent_class)
-        .with_router(router)
-        .with_memory(hot_memory, warm_memory, cold_memory)
-        .with_mcp(mcp)
+    builder = cast(
+        AgentBuilder,
+        (
+            AgentBuilder()
+            .with_agent(agent_class)
+            .with_router(router)
+            .with_memory(hot_memory, warm_memory, cold_memory)
+            .with_mcp(mcp)
+        ),
     )
     with_self_healing = getattr(builder, "with_self_healing", None)
     if callable(with_self_healing):
-        builder = with_self_healing(healing_kernel)
+        maybe_builder = with_self_healing(healing_kernel)
+        if isinstance(maybe_builder, AgentBuilder):
+            builder = maybe_builder
     if slm_config is None and llm_config is None:
         slm_config = _build_foundry_config("FOUNDRY_AGENT_ID_FAST", "MODEL_DEPLOYMENT_NAME_FAST")
         llm_config = _build_foundry_config("FOUNDRY_AGENT_ID_RICH", "MODEL_DEPLOYMENT_NAME_RICH")
@@ -183,12 +210,29 @@ def build_service_app(
         )
 
     agent = builder.build()
-    tracer = get_foundry_tracer(service_name)
     if hasattr(agent, "connector_registry"):
         agent.connector_registry = registry
     app.state.agent = agent
+
+    def _has_bound_foundry_target() -> bool:
+        return bool(getattr(agent, "slm", None) or getattr(agent, "llm", None))
+
+    def _sync_foundry_tracing_state() -> None:
+        if disable_tracing_without_foundry:
+            get_foundry_tracer(service_name, enabled=_has_bound_foundry_target())
+            return
+        get_foundry_tracer(service_name)
+
+    if disable_tracing_without_foundry:
+        tracer = get_foundry_tracer(
+            service_name,
+            enabled=_has_bound_foundry_target(),
+        )
+    else:
+        tracer = get_foundry_tracer(service_name)
+
     strict_foundry_mode = strict_foundry_mode_enabled()
-    foundry_ready = not strict_foundry_mode
+    foundry_ready = _has_bound_foundry_target()
     auto_ensure_on_startup = auto_ensure_on_startup_enabled(strict_foundry_mode=strict_foundry_mode)
 
     if hasattr(agent, "service_name"):
@@ -220,13 +264,15 @@ def build_service_app(
             foundry_manager.ensure_foundry_agent_fn = ensure_foundry_agent
             results = await foundry_manager.ensure_startup_roles(default_instructions)
 
-            foundry_ready = all(
+            startup_ready = all(
                 result.get("status") in {"exists", "found_by_name", "created"}
                 and bool(result.get("agent_id"))
                 for result in results.values()
             )
+            foundry_ready = _has_bound_foundry_target()
+            _sync_foundry_tracing_state()
 
-            if strict_foundry_mode and not foundry_ready:
+            if strict_foundry_mode and not startup_ready:
                 raise RuntimeError(
                     f"Foundry auto-ensure failed for service '{service_name}': {results}"
                 )
@@ -355,6 +401,9 @@ def build_service_app(
             resolved_roles == len(configured_requested_roles)
         )
 
+        foundry_ready = foundry_ready and _has_bound_foundry_target()
+        _sync_foundry_tracing_state()
+
         if strict_foundry_mode and not foundry_ready:
             logger.warning(
                 "foundry_strict_ensure_incomplete",
@@ -378,10 +427,43 @@ def build_service_app(
 
     def _set_foundry_ready(value: bool) -> None:
         nonlocal foundry_ready
-        foundry_ready = value
+        foundry_ready = bool(value) and _has_bound_foundry_target()
+        _sync_foundry_tracing_state()
 
     def _requires_foundry_runtime_resolution() -> bool:
         return bool((slm_config or llm_config) and not (agent.slm or agent.llm))
+
+    def _foundry_capabilities() -> dict[str, Any]:
+        configured_roles: list[str] = []
+        unresolved_roles: list[str] = []
+
+        if slm_config is not None:
+            configured_roles.append("fast")
+            if getattr(agent, "slm", None) is None:
+                unresolved_roles.append("fast")
+
+        if llm_config is not None:
+            configured_roles.append("rich")
+            if getattr(agent, "llm", None) is None:
+                unresolved_roles.append("rich")
+
+        endpoint_configured = any(
+            bool(str(config.endpoint or "").strip())
+            for config in (slm_config, llm_config)
+            if config is not None
+        )
+
+        return {
+            "required": require_foundry_readiness,
+            "strict_mode": strict_foundry_mode,
+            "project_configured": bool(slm_config or llm_config),
+            "endpoint_configured": endpoint_configured,
+            "configured_roles": configured_roles,
+            "unresolved_roles": unresolved_roles,
+            "agent_targets_bound": _has_bound_foundry_target(),
+            "runtime_resolution_required": _requires_foundry_runtime_resolution(),
+            "auto_ensure_on_startup": auto_ensure_on_startup,
+        }
 
     endpoint_kwargs: dict[str, Any] = {"self_healing_kernel": healing_kernel}
 
@@ -393,9 +475,11 @@ def build_service_app(
         tracer=tracer,
         logger=logger,
         strict_foundry_mode=strict_foundry_mode,
+        require_foundry_readiness=require_foundry_readiness,
         is_foundry_ready=_is_foundry_ready,
         set_foundry_ready=_set_foundry_ready,
         requires_foundry_runtime_resolution=_requires_foundry_runtime_resolution,
+        foundry_capabilities=_foundry_capabilities,
         ensure_agents_handler=ensure_agents,
         **endpoint_kwargs,
     )

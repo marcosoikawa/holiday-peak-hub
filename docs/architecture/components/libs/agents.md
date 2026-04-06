@@ -308,6 +308,35 @@ When `create_if_missing=true`, agent creation requires a model to be provided vi
 `MODEL_DEPLOYMENT_NAME_RICH`. If no model is available, the role result returns
 `status: "missing_model"` and no agent is created.
 
+### Foundry Readiness Contract
+
+`GET /ready` always includes **actual Foundry runtime status** for the service.
+
+- Library default (`build_service_app` / `create_standard_app`) is **Foundry-preferred, not required**.
+- Agentic services opt into enforcement with `require_foundry_readiness=True`.
+- When enforcement is enabled, `/ready` returns `503` if no callable Foundry target is bound.
+- When enforcement is disabled, `/ready` remains `200` and reports `foundry_ready=false`.
+
+- `ready` means at least one Foundry model target (SLM or LLM) is active.
+- `not_ready` means Foundry is unresolved for runtime calls and traffic should not be routed.
+- Use `POST /foundry/agents/ensure` to provision/resolve targets before serving requests.
+
+Readiness payload now includes a `foundry` capability object with:
+
+- `project_configured`
+- `endpoint_configured`
+- `configured_roles`
+- `unresolved_roles`
+- `agent_targets_bound`
+- `runtime_resolution_required`
+- `auto_ensure_on_startup`
+
+Foundry tracer collection can be controlled per service via
+`disable_tracing_without_foundry` on `create_standard_app` / `build_service_app`.
+When set to `true`, tracer collection is disabled whenever no Foundry model
+target is bound. In this repository, all agentic services enable this flag to
+enforce Foundry-bound telemetry semantics.
+
 ### Strict Foundry Enforcement Mode
 
 Set `FOUNDRY_STRICT_ENFORCEMENT=true` to require a successful ensure step before
