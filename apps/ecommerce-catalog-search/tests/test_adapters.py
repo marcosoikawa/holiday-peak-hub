@@ -3,9 +3,9 @@
 import httpx
 import pytest
 from ecommerce_catalog_search.adapters import (
-    CRUDCatalogProductAdapter,
     SEARCH_MODE_INTELLIGENT,
     SEARCH_MODE_KEYWORD,
+    CRUDCatalogProductAdapter,
     build_catalog_adapters,
     normalize_search_mode,
 )
