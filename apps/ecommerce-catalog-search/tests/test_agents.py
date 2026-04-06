@@ -380,9 +380,7 @@ class TestCatalogSearchAgent:
             )
 
             agent = CatalogSearchAgent(config=agent_dependencies)
-            result = await agent.handle(
-                {"query": "running shoes", "limit": 5, "mode": "keyword"}
-            )
+            result = await agent.handle({"query": "running shoes", "limit": 5, "mode": "keyword"})
 
             assert len(result["results"]) == 1
             assert result["results"][0]["item_id"] == "SKU-001"
@@ -418,9 +416,7 @@ class TestCatalogSearchAgent:
             )
 
             agent = CatalogSearchAgent(config=agent_dependencies)
-            result = await agent.handle(
-                {"query": "fallback query", "limit": 3, "mode": "keyword"}
-            )
+            result = await agent.handle({"query": "fallback query", "limit": 3, "mode": "keyword"})
 
             assert len(result["results"]) == 1
             mock_search.assert_awaited_once_with(query="fallback query", limit=3)
@@ -456,9 +452,7 @@ class TestCatalogSearchAgent:
             )
 
             agent = CatalogSearchAgent(config=agent_dependencies)
-            result = await agent.handle(
-                {"query": "rain jacket", "limit": 3, "mode": "keyword"}
-            )
+            result = await agent.handle({"query": "rain jacket", "limit": 3, "mode": "keyword"})
 
             assert len(result["results"]) == 1
             assert result["results"][0]["item_id"] == "SKU-001"
@@ -494,9 +488,7 @@ class TestCatalogSearchAgent:
             )
 
             agent = CatalogSearchAgent(config=agent_dependencies)
-            result = await agent.handle(
-                {"query": "SKU-001", "limit": 3, "mode": "keyword"}
-            )
+            result = await agent.handle({"query": "SKU-001", "limit": 3, "mode": "keyword"})
 
             assert len(result["results"]) == 1
             assert result["results"][0]["item_id"] == "SKU-001"
