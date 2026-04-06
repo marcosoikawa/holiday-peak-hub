@@ -8,6 +8,7 @@ Provides product discovery and ACP-aligned catalog search responses.
 - Default to intelligent search mode when no mode is specified, while keeping explicit keyword mode available for demos and compatibility.
 - Return inventory-aware and commerce-ready product context.
 - Support intelligent search enrichment for downstream flows.
+- Emit explicit degraded fallback metadata (`result_type`, `degraded_reason`, `fallback_keywords`) when model synthesis times out or fails.
 - Applies deterministic lexical intent routing for travel+apparel language (for example, vacation + clothes) while preserving dedicated winter-travel apparel classification.
 
 ## Key endpoints or interfaces

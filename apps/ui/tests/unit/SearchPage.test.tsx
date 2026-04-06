@@ -220,6 +220,43 @@ describe('SearchPage', () => {
     ).not.toBeInTheDocument();
   });
 
+  it('shows degraded fallback warning when agent model synthesis fails', () => {
+    mockUseIntelligentSearch.mockReturnValue({
+      data: {
+        items: [],
+        source: 'agent',
+        mode: 'intelligent',
+        requested_mode: 'intelligent',
+        degraded: true,
+        degraded_reason: 'model_timeout',
+        degraded_message:
+          'Showing the best available catalog guidance while intelligent generation is temporarily unavailable.',
+        fallback_keywords: ['winter', 'jacket', 'boots'],
+        intent: null,
+        subqueries: [],
+      },
+      isLoading: false,
+      error: null,
+      isFetching: false,
+      refetch: jest.fn(),
+      isReranking: false,
+      baselineData: {
+        items: [],
+        source: 'agent',
+        mode: 'intelligent',
+      },
+      rerankedData: undefined,
+      preference: 'intelligent',
+      setPreference,
+      resolvedMode: 'intelligent',
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByText('Intelligent synthesis is temporarily degraded')).toBeInTheDocument();
+    expect(screen.getByText('Fallback keywords: winter, jacket, boots')).toBeInTheDocument();
+  });
+
   it('announces reranking progress with a polite status message', () => {
     mockUseIntelligentSearch.mockReturnValue({
       data: {

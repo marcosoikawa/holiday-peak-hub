@@ -80,6 +80,10 @@ WINTER_TRAVEL_INTENT_CONFIDENCE_THRESHOLD = 0.8
 KEYWORD_ADAPTIVE_MIN_QUERY_TOKENS = 6
 KEYWORD_ADAPTIVE_BASELINE_WINDOW = 3
 KEYWORD_ADAPTIVE_APPAREL_COVERAGE_THRESHOLD = 0.34
+DEGRADED_MODEL_FALLBACK_MESSAGE = (
+    "Showing the best available catalog guidance while intelligent generation "
+    "is temporarily unavailable."
+)
 
 _LEXICAL_TOKEN_PATTERN = re.compile(r"[a-z0-9]+")
 
@@ -397,9 +401,13 @@ class CatalogSearchAgent(BaseRetailAgent):
             "summary": summary,
             "recommendation": recommendation,
             "answer_source": "agent_fallback",
+            "result_type": "deterministic",
+            "degraded": False,
+            "model_attempted": False,
         }
 
         if self.slm or self.llm:
+            deterministic_response["model_attempted"] = True
             messages = [
                 {
                     "role": "system",
@@ -427,6 +435,10 @@ class CatalogSearchAgent(BaseRetailAgent):
                 model_response["search_stage"] = search_stage
                 model_response["session_id"] = namespace_context.session_id
                 model_response["answer_source"] = "agent_model"
+                model_response["result_type"] = "model_answer"
+                model_response["degraded"] = False
+                model_response["model_attempted"] = True
+                model_response["model_status"] = "success"
                 return model_response
             except asyncio.TimeoutError:
                 logger.warning(
@@ -437,6 +449,16 @@ class CatalogSearchAgent(BaseRetailAgent):
                         "search_stage": search_stage,
                     },
                 )
+                deterministic_response.update(
+                    {
+                        "result_type": "degraded_fallback",
+                        "degraded": True,
+                        "degraded_reason": "model_timeout",
+                        "degraded_message": DEGRADED_MODEL_FALLBACK_MESSAGE,
+                        "fallback_keywords": _build_fallback_keywords(str(query), intent),
+                        "model_status": "timeout",
+                    }
+                )
             except Exception:  # pylint: disable=broad-exception-caught
                 logger.warning(
                     "catalog_search_model_response_fallback",
@@ -446,6 +468,16 @@ class CatalogSearchAgent(BaseRetailAgent):
                         "search_stage": search_stage,
                     },
                     exc_info=True,
+                )
+                deterministic_response.update(
+                    {
+                        "result_type": "degraded_fallback",
+                        "degraded": True,
+                        "degraded_reason": "model_error",
+                        "degraded_message": DEGRADED_MODEL_FALLBACK_MESSAGE,
+                        "fallback_keywords": _build_fallback_keywords(str(query), intent),
+                        "model_status": "error",
+                    }
                 )
 
         return deterministic_response
@@ -566,6 +598,36 @@ def _coerce_keyword_list(raw_keywords: Any) -> list[str]:
         return []
 
     return [item.strip() for item in raw_keywords if isinstance(item, str) and item.strip()]
+
+
+def _build_fallback_keywords(
+    query: str,
+    intent: IntentClassification | None,
+) -> list[str]:
+    raw_keywords: list[str] = []
+
+    if intent is not None and isinstance(intent.entities, dict):
+        raw_keywords.extend(_coerce_keyword_list(intent.entities.get("keywords")))
+
+    raw_keywords.extend(_LEXICAL_TOKEN_PATTERN.findall(query.lower()))
+
+    deduplicated: list[str] = []
+    seen_keywords: set[str] = set()
+    for keyword in raw_keywords:
+        value = keyword.strip()
+        if not value:
+            continue
+
+        normalized = value.lower()
+        if normalized in seen_keywords:
+            continue
+
+        seen_keywords.add(normalized)
+        deduplicated.append(value)
+        if len(deduplicated) >= 8:
+            break
+
+    return deduplicated
 
 
 def _deterministic_intent_policy(query: str) -> IntentClassification:

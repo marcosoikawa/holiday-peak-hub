@@ -210,9 +210,143 @@ class TestCatalogSearchAgent:
             assert result["query"] == "rain jacket"
             assert isinstance(result["results"], list)
             assert result["answer_source"] == "agent_fallback"
+            assert result["result_type"] == "degraded_fallback"
+            assert result["degraded"] is True
+            assert result["degraded_reason"] == "model_timeout"
+            assert result["model_attempted"] is True
+            assert result["model_status"] == "timeout"
+            assert isinstance(result.get("degraded_message"), str)
+            assert "temporarily unavailable" in result["degraded_message"].lower()
+            assert isinstance(result.get("fallback_keywords"), list)
+            assert "rain" in result["fallback_keywords"]
             assert isinstance(result.get("summary"), str)
             assert isinstance(result.get("recommendation"), str)
             agent.invoke_model.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_handle_model_error_returns_degraded_fallback_answer(
+        self, agent_dependencies, mock_catalog_product
+    ):
+        """Unexpected model failures should return explicit degraded metadata."""
+        mock_inventory_item = InventoryItem(sku="SKU-001", available=10, reserved=0)
+
+        with patch("ecommerce_catalog_search.agents.build_catalog_adapters") as mock_build:
+            mock_products = AsyncMock()
+            mock_products.get_product = AsyncMock(return_value=mock_catalog_product)
+            mock_products.get_related = AsyncMock(return_value=[])
+
+            mock_inventory = AsyncMock()
+            mock_inventory.get_item = AsyncMock(return_value=mock_inventory_item)
+
+            mock_build.return_value = CatalogAdapters(
+                products=mock_products,
+                inventory=mock_inventory,
+                mapping=AcpCatalogMapper(),
+            )
+
+            agent = CatalogSearchAgent(config=agent_dependencies)
+            agent.slm = object()
+            agent.invoke_model = AsyncMock(side_effect=RuntimeError("model failure"))
+
+            result = await agent.handle(
+                {
+                    "query": "winter travel jacket",
+                    "limit": 5,
+                    "mode": "intelligent",
+                }
+            )
+
+            assert result["answer_source"] == "agent_fallback"
+            assert result["result_type"] == "degraded_fallback"
+            assert result["degraded"] is True
+            assert result["degraded_reason"] == "model_error"
+            assert result["model_attempted"] is True
+            assert result["model_status"] == "error"
+            assert isinstance(result.get("fallback_keywords"), list)
+            assert "winter" in result["fallback_keywords"]
+            assert "travel" in result["fallback_keywords"]
+
+    @pytest.mark.asyncio
+    async def test_handle_without_model_returns_non_degraded_deterministic_response(
+        self, agent_dependencies, mock_catalog_product
+    ):
+        """Deterministic path should not be flagged as degraded when no model is configured."""
+        mock_inventory_item = InventoryItem(sku="SKU-001", available=10, reserved=0)
+
+        with patch("ecommerce_catalog_search.agents.build_catalog_adapters") as mock_build:
+            mock_products = AsyncMock()
+            mock_products.get_product = AsyncMock(return_value=mock_catalog_product)
+            mock_products.get_related = AsyncMock(return_value=[])
+
+            mock_inventory = AsyncMock()
+            mock_inventory.get_item = AsyncMock(return_value=mock_inventory_item)
+
+            mock_build.return_value = CatalogAdapters(
+                products=mock_products,
+                inventory=mock_inventory,
+                mapping=AcpCatalogMapper(),
+            )
+
+            agent = CatalogSearchAgent(config=agent_dependencies)
+            result = await agent.handle(
+                {
+                    "query": "running shoes",
+                    "limit": 3,
+                    "mode": "intelligent",
+                }
+            )
+
+            assert result["answer_source"] == "agent_fallback"
+            assert result["result_type"] == "deterministic"
+            assert result["degraded"] is False
+            assert result["model_attempted"] is False
+            assert "degraded_reason" not in result
+            assert "fallback_keywords" not in result
+
+    @pytest.mark.asyncio
+    async def test_handle_model_success_returns_model_answer_metadata(
+        self, agent_dependencies, mock_catalog_product
+    ):
+        """Successful model synthesis should remain classified as model answer."""
+        mock_inventory_item = InventoryItem(sku="SKU-001", available=10, reserved=0)
+
+        with patch("ecommerce_catalog_search.agents.build_catalog_adapters") as mock_build:
+            mock_products = AsyncMock()
+            mock_products.get_product = AsyncMock(return_value=mock_catalog_product)
+            mock_products.get_related = AsyncMock(return_value=[])
+
+            mock_inventory = AsyncMock()
+            mock_inventory.get_item = AsyncMock(return_value=mock_inventory_item)
+
+            mock_build.return_value = CatalogAdapters(
+                products=mock_products,
+                inventory=mock_inventory,
+                mapping=AcpCatalogMapper(),
+            )
+
+            agent = CatalogSearchAgent(config=agent_dependencies)
+            agent.slm = object()
+            agent.invoke_model = AsyncMock(
+                return_value={
+                    "service": "test-catalog-search",
+                    "results": [],
+                    "mode": "intelligent",
+                }
+            )
+
+            result = await agent.handle(
+                {
+                    "query": "rain jacket",
+                    "limit": 5,
+                    "mode": "intelligent",
+                }
+            )
+
+            assert result["answer_source"] == "agent_model"
+            assert result["result_type"] == "model_answer"
+            assert result["degraded"] is False
+            assert result["model_attempted"] is True
+            assert result["model_status"] == "success"
 
     @pytest.mark.asyncio
     async def test_handle_persists_search_history_to_memory_tiers(
