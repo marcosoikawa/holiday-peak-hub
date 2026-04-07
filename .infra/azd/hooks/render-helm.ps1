@@ -465,7 +465,9 @@ if ($isAgentService) {
     "MODEL_DEPLOYMENT_NAME_FAST",
     "MODEL_DEPLOYMENT_NAME_RICH",
     "FOUNDRY_AGENT_NAME_FAST",
-    "FOUNDRY_AGENT_NAME_RICH"
+    "FOUNDRY_AGENT_NAME_RICH",
+    "FOUNDRY_STRICT_ENFORCEMENT",
+    "FOUNDRY_AUTO_ENSURE_ON_STARTUP"
   )
 
   foreach ($foundryKey in $requiredFoundryRenderedKeys) {

@@ -1,7 +1,7 @@
 # Infrastructure Governance and Compliance Guidelines
 
 **Version**: 2.3
-**Last Updated**: 2026-04-06
+**Last Updated**: 2026-04-07
 **Owner**: Infrastructure Team
 
 ## Scope
@@ -84,6 +84,8 @@ Infrastructure provisioning, deployment orchestration, identity, security contro
 - APIM sync filtering must always include `crud-service` when CRUD sync is enabled, even under changed-services filtering.
 - For AGC-backed CRUD routing, ingress must expose app-native paths (`/health`, `/api`) and APIM CRUD backend must target the AGC listener root with no workload-specific suffix.
 - Path translation must not be split across AGC and APIM for CRUD. APIM keeps health rewrite (`/api/health -> /health`), while `/api/*` routes are forwarded as-is.
+- Agent-service deployments must enforce the Foundry runtime contract end to end: workflow intent currently requires `FOUNDRY_STRICT_ENFORCEMENT=true` and `FOUNDRY_AUTO_ENSURE_ON_STARTUP=true`, render hooks must emit both keys into Helm output, and the post-deploy gate must compare workflow intent, rendered manifests, live Deployment env values, `POST /foundry/agents/ensure`, and live `/ready` behavior for each changed agent service.
+- A changed agent service is a hard deployment failure when any Foundry contract seam drifts: missing rendered keys, rendered-versus-live env mismatch, ensure responses without resolved `fast` and `rich` agent ids, or `/ready` responses that remain healthy while the strict Foundry contract is not actually enforced.
 - During migration, legacy AGIC or Web App Routing configuration may exist only as transitional state and must not be described as the target architecture.
 - Optional UI-only deployment path constrained by SWA token flow and health checks.
 - ACR network-rule temporary exceptions may be applied/removed automatically when enabled.
@@ -119,6 +121,7 @@ Infrastructure provisioning, deployment orchestration, identity, security contro
 5. Any temporary firewall exceptions removed after deployment.
 6. Architecture/governance docs updated when policy changes.
 7. Privileged live validation remains bound to the `dev` environment and excluded from PR contexts; selected-branch deployment protection on `main` must be enabled on that environment by a repo admin.
+8. Changed agent services passed the Foundry runtime contract gate across workflow intent, rendered manifests, live Deployment env values, ensure responses, and `/ready` validation.
 
 ## ADR References
 
