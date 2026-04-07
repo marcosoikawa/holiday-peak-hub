@@ -73,6 +73,10 @@ permissions:
   id-token: write
   contents: read
 
+env:
+  FOUNDRY_RUNTIME_STRICT_ENFORCEMENT: "true"
+  FOUNDRY_RUNTIME_AUTO_ENSURE_ON_STARTUP: "true"
+
 concurrency:
   group: deploy-azd-${{ inputs.environment }}
   cancel-in-progress: false
@@ -1602,8 +1606,8 @@ jobs:
           PROJECT_NAME: ${{ needs.provision.outputs.PROJECT_NAME }}
           FOUNDRY_AGENT_NAME_FAST: ${{ matrix.service }}-fast
           FOUNDRY_AGENT_NAME_RICH: ${{ matrix.service }}-rich
-          FOUNDRY_AUTO_ENSURE_ON_STARTUP: "true"
-          FOUNDRY_STRICT_ENFORCEMENT: "true"
+          FOUNDRY_AUTO_ENSURE_ON_STARTUP: ${{ env.FOUNDRY_RUNTIME_AUTO_ENSURE_ON_STARTUP }}
+          FOUNDRY_STRICT_ENFORCEMENT: ${{ env.FOUNDRY_RUNTIME_STRICT_ENFORCEMENT }}
           MODEL_DEPLOYMENT_NAME_FAST: gpt-5-nano
           MODEL_DEPLOYMENT_NAME_RICH: gpt-5-nano
           POSTGRES_AUTH_MODE: ${{ needs.provision.outputs.POSTGRES_AUTH_MODE }}
@@ -2043,68 +2047,99 @@ jobs:
             --name "${{ inputs.projectName }}-${{ inputs.environment }}-aks" \
             --overwrite-existing
 
-      - name: Ensure all V2 Foundry agents are provisioned
-        run: |
-          bash .infra/azd/hooks/ensure-foundry-agents.sh --port-forward --fail-on-error
+      - name: Ensure hook scripts executable
+        shell: bash
+        run: chmod +x ./.infra/azd/hooks/*.sh
+
+      - name: Render changed agent manifests for Foundry contract validation
+        shell: bash
         env:
           K8S_NAMESPACE: holiday-peak
-
-      - name: Verify Foundry readiness across services
         run: |
           set -euo pipefail
 
-          if [ -n "${CHANGED_SERVICES}" ]; then
-            SERVICES=$(printf '%s' "${CHANGED_SERVICES}" | tr ',' '\n' | sed '/^crud-service$/d' | sed '/^$/d')
-          else
-            SERVICES=$(python3 -c "
-            import re
-            with open('azure.yaml') as f: lines = f.readlines()
-            s, cs, ch = False, None, None
-            svcs = []
-            for l in lines:
-              l = l.rstrip()
-              if not s:
-                if re.match(r'^services:\s*$', l): s = True
-                continue
-              if re.match(r'^[^\s]', l): break
-              m = re.match(r'^  ([a-z0-9\-]+):\s*$', l)
-              if m:
-                if cs and ch == 'aks' and cs != 'crud-service': svcs.append(cs)
-                cs, ch = m.group(1), None
-                continue
-              h = re.match(r'^    host:\s*(\S+)', l)
-              if h: ch = h.group(1)
-            if cs and ch == 'aks' and cs != 'crud-service': svcs.append(cs)
-            print('\\n'.join(svcs))
-            ")
+          if [ -z "${CHANGED_SERVICES}" ]; then
+            echo "No changed agent services to render."
+            exit 0
           fi
 
-          FAILED=0
-          while IFS= read -r SVC; do
-            [ -z "$SVC" ] && continue
-            LOCAL_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
-            kubectl port-forward "svc/$SVC" "$LOCAL_PORT:8000" -n holiday-peak &
-            PF_PID=$!
-            sleep 3
+          get_deployment_name() {
+            local service_name="$1"
+            kubectl get deployment -n "$K8S_NAMESPACE" -l "app=${service_name}" -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true
+          }
 
-            STATUS="unreachable"
-            if HEALTH_BODY=$(curl -sS "http://localhost:$LOCAL_PORT/health" 2>/dev/null); then
-              STATUS=$(printf '%s' "$HEALTH_BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "invalid-json")
+          get_env_from_deployment() {
+            local deployment_name="$1"
+            local env_name="$2"
+            kubectl get deployment "$deployment_name" -n "$K8S_NAMESPACE" -o jsonpath="{.spec.template.spec.containers[0].env[?(@.name=='$env_name')].value}" 2>/dev/null || true
+          }
+
+          render_service_manifest() {
+            local service_name="$1"
+            local deployment_name
+
+            deployment_name="$(get_deployment_name "$service_name")"
+            if [ -z "$deployment_name" ]; then
+              echo "Could not resolve deployment for changed service '$service_name'." >&2
+              exit 1
             fi
-            kill "$PF_PID" 2>/dev/null || true
 
-            if [ "$STATUS" = "ok" ]; then
-              echo "  [OK] $SVC"
-            else
-              echo "  [WARN] $SVC: status=$STATUS"
-              FAILED=$((FAILED + 1))
+            export DEPLOY_ENV="${{ inputs.environment }}"
+            export K8S_NAMESPACE="$K8S_NAMESPACE"
+            export PROJECT_ENDPOINT="$(get_env_from_deployment "$deployment_name" PROJECT_ENDPOINT)"
+            export PROJECT_NAME="$(get_env_from_deployment "$deployment_name" PROJECT_NAME)"
+            export EVENT_HUB_NAMESPACE="$(get_env_from_deployment "$deployment_name" EVENT_HUB_NAMESPACE)"
+            export MODEL_DEPLOYMENT_NAME_FAST="$(get_env_from_deployment "$deployment_name" MODEL_DEPLOYMENT_NAME_FAST)"
+            export MODEL_DEPLOYMENT_NAME_RICH="$(get_env_from_deployment "$deployment_name" MODEL_DEPLOYMENT_NAME_RICH)"
+            export COSMOS_ACCOUNT_URI="$(get_env_from_deployment "$deployment_name" COSMOS_ACCOUNT_URI)"
+            export COSMOS_DATABASE="$(get_env_from_deployment "$deployment_name" COSMOS_DATABASE)"
+            export COSMOS_CONTAINER="$(get_env_from_deployment "$deployment_name" COSMOS_CONTAINER)"
+            export COSMOS_AUDIT_CONTAINER="$(get_env_from_deployment "$deployment_name" COSMOS_AUDIT_CONTAINER)"
+            export REDIS_HOST="$(get_env_from_deployment "$deployment_name" REDIS_HOST)"
+            export BLOB_ACCOUNT_URL="$(get_env_from_deployment "$deployment_name" BLOB_ACCOUNT_URL)"
+            export KEY_VAULT_URI="$(get_env_from_deployment "$deployment_name" KEY_VAULT_URI)"
+            export FOUNDRY_AGENT_NAME_FAST="$(get_env_from_deployment "$deployment_name" FOUNDRY_AGENT_NAME_FAST)"
+            export FOUNDRY_AGENT_NAME_RICH="$(get_env_from_deployment "$deployment_name" FOUNDRY_AGENT_NAME_RICH)"
+            export AI_SEARCH_ENDPOINT="$(get_env_from_deployment "$deployment_name" AI_SEARCH_ENDPOINT)"
+            export AI_SEARCH_INDEX="$(get_env_from_deployment "$deployment_name" AI_SEARCH_INDEX)"
+            export AI_SEARCH_VECTOR_INDEX="$(get_env_from_deployment "$deployment_name" AI_SEARCH_VECTOR_INDEX)"
+            export AI_SEARCH_INDEXER_NAME="$(get_env_from_deployment "$deployment_name" AI_SEARCH_INDEXER_NAME)"
+            export EMBEDDING_DEPLOYMENT_NAME="$(get_env_from_deployment "$deployment_name" EMBEDDING_DEPLOYMENT_NAME)"
+            export SEARCH_ENRICHMENT_EVENT_HUB_NAME="$(get_env_from_deployment "$deployment_name" SEARCH_ENRICHMENT_EVENT_HUB_NAME)"
+            export SEARCH_ENRICHMENT_EVENT_HUB_CONSUMER_GROUP="$(get_env_from_deployment "$deployment_name" SEARCH_ENRICHMENT_EVENT_HUB_CONSUMER_GROUP)"
+            export TRUTH_EVENT_HUB_NAME="$(get_env_from_deployment "$deployment_name" TRUTH_EVENT_HUB_NAME)"
+            export TRUTH_EVENT_HUB_CONSUMER_GROUP="$(get_env_from_deployment "$deployment_name" TRUTH_EVENT_HUB_CONSUMER_GROUP)"
+            export FOUNDRY_STRICT_ENFORCEMENT="${FOUNDRY_RUNTIME_STRICT_ENFORCEMENT}"
+            export FOUNDRY_AUTO_ENSURE_ON_STARTUP="${FOUNDRY_RUNTIME_AUTO_ENSURE_ON_STARTUP}"
+
+            if [ -z "$FOUNDRY_AGENT_NAME_FAST" ]; then
+              export FOUNDRY_AGENT_NAME_FAST="${service_name}-fast"
             fi
-          done <<< "$SERVICES"
 
-          if [ "$FAILED" -gt 0 ]; then
-            echo "$FAILED service(s) did not report status=ok during Foundry readiness checks." >&2
-            exit 1
-          fi
+            if [ -z "$FOUNDRY_AGENT_NAME_RICH" ]; then
+              export FOUNDRY_AGENT_NAME_RICH="${service_name}-rich"
+            fi
+
+            echo "Rendering manifest for ${service_name} with expected Foundry contract values."
+            bash .infra/azd/hooks/render-helm.sh "$service_name"
+          }
+
+          IFS=',' read -r -a services <<< "${CHANGED_SERVICES}"
+          for svc in "${services[@]}"; do
+            [ -z "$svc" ] && continue
+            render_service_manifest "$svc"
+          done
+
+      - name: Ensure all V2 Foundry agents are provisioned and validate runtime contract drift
+        shell: bash
+        run: |
+          export FOUNDRY_STRICT_ENFORCEMENT="${FOUNDRY_RUNTIME_STRICT_ENFORCEMENT}"
+          export FOUNDRY_AUTO_ENSURE_ON_STARTUP="${FOUNDRY_RUNTIME_AUTO_ENSURE_ON_STARTUP}"
+          bash .infra/azd/hooks/ensure-foundry-agents.sh --port-forward --fail-on-error
+        env:
+          K8S_NAMESPACE: holiday-peak
+          VALIDATE_RENDERED_FOUNDRY_CONTRACT: "true"
+          VALIDATE_READY_AFTER_ENSURE: "true"
 
   watchdog-apim-agc-swa-drift:
     runs-on: ubuntu-latest

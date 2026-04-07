@@ -1,6 +1,6 @@
 # Holiday Peak Hub - Architecture Documentation
 
-**Last Updated**: April 6, 2026
+**Last Updated**: April 7, 2026
 **Version**: main (post PR #559)  
 **Status**: Active Development
 
@@ -14,6 +14,7 @@
 - Agentic app README deployment docs are standardized with standalone azd-first guidance and app-specific ACR/AKS paths.
 - UI/UX modernization review added with per-view recommendations for customer, staff, admin, and observability surfaces.
 - Protected dev live validation now has a dedicated GitHub Actions workflow with trusted triggers, OIDC-only Azure auth, and the `dev` environment boundary; final environment protection remains a repo-admin step.
+- Reusable deployment now includes a blocking Foundry contract drift gate that compares workflow intent, rendered Helm manifests, live AKS Deployment env values, ensure results, and `/ready` responses for changed agent services.
 
 ## Overview
 
@@ -94,13 +95,15 @@ Core workflow note: `.github/workflows/deploy-azd.yml` is reusable-only and not 
 1. `provision` job: sets azd env values and runs `azd provision`.
 2. `deploy-crud` job: deploys `crud-service` when CRUD/lib changes are detected.
 3. `deploy-foundry-models` and `deploy-agents` jobs: run after provision; `deploy-agents` deploys changed agent services (and can proceed when `deploy-crud` is skipped for agent-only changes).
-4. `sync-apim` and `smoke-apim` jobs: run when CRUD/agent changes are present or `forceApimSync=true`.
-5. `deploy-ui` job (when `deployStatic=true`): runs after APIM sync/smoke gates, resolves APIM URL with fail-fast validation, fetches the SWA deployment token from Azure, and deploys `apps/ui` via `Azure/static-web-apps-deploy@v1` (framework-aware build for dynamic Next.js routes).
-6. Demo data seeding is operator-driven and must be run locally (outside CI) when needed.
+4. `ensure-foundry-agents` job: re-renders changed agent manifests with the workflow's strict/auto-ensure contract, compares rendered env values against live AKS Deployments, then validates `POST /foundry/agents/ensure` plus `/ready` for each changed agent service.
+5. `sync-apim` and `smoke-apim` jobs: run when CRUD/agent changes are present or `forceApimSync=true`.
+6. `deploy-ui` job (when `deployStatic=true`): runs after APIM sync/smoke gates, resolves APIM URL with fail-fast validation, fetches the SWA deployment token from Azure, and deploys `apps/ui` via `Azure/static-web-apps-deploy@v1` (framework-aware build for dynamic Next.js routes).
+7. Demo data seeding is operator-driven and must be run locally (outside CI) when needed.
 
 **Operational notes**:
 
 - Keep `deployShared=true` for all shared-environment rollouts.
+- For changed AKS agent services, treat the Foundry runtime contract as a blocking gate: expected `FOUNDRY_STRICT_ENFORCEMENT=true` and `FOUNDRY_AUTO_ENSURE_ON_STARTUP=true` must survive render and rollout, and `/ready` is only accepted when it matches successful Foundry ensure results.
 - UI deployment intentionally uses the SWA GitHub Action path (not `azd deploy --service ui`) so App Router dynamic segments (`[id]`, `[slug]`) are built in the same mode as standard SWA workflows.
 - Frontend API calls must always use APIM via validated runtime env aliases (`NEXT_PUBLIC_API_URL` and `NEXT_PUBLIC_CRUD_API_URL` are set together in deployment workflows).
 - Demo seeding uses a curated catalog of 10 categories and 100 products with realistic retail data. Re-runs are idempotent by item ID (`cat-*`, `prd-*`): existing seeded records are updated instead of duplicated.
