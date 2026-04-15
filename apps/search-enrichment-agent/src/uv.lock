@@ -3489,7 +3489,7 @@ test = [
 requires-dist = [
     { name = "agent-framework", specifier = ">=1.0.1" },
     { name = "asyncpg" },
-    { name = "azure-ai-projects", specifier = ">=2.0.0b4" },
+    { name = "azure-ai-projects", specifier = ">=2.0.1" },
     { name = "azure-cosmos" },
     { name = "azure-eventhub" },
     { name = "azure-identity" },
