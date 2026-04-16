@@ -39,6 +39,11 @@ class TruthEnrichmentAgent(BaseRetailAgent):
         attach_self_healing = getattr(self._adapters.hitl_publisher, "attach_self_healing", None)
         if callable(attach_self_healing):
             attach_self_healing(self.self_healing_kernel)
+        attach_search = getattr(
+            self._adapters.search_enrichment_publisher, "attach_self_healing", None
+        )
+        if callable(attach_search):
+            attach_search(self.self_healing_kernel)  # pylint: disable=not-callable
         self._adapters.dam.set_vision_invoker(self.invoke_model)
         self._adapters.dam.set_vision_prompt_builder(self._engine.build_vision_prompt)
 
@@ -117,6 +122,27 @@ class TruthEnrichmentAgent(BaseRetailAgent):
         _record_enrichment_evaluation(
             self, entity_id=str(entity_id), gaps=gaps, proposed=proposed_list
         )
+
+        # Bridge: trigger search enrichment for this entity
+        if self._adapters.search_enrichment_publisher is not None:
+            try:
+                await self._adapters.search_enrichment_publisher.publish(
+                    {
+                        "event_type": "enrichment.completed",
+                        "data": {
+                            "entity_id": str(entity_id),
+                            "proposed_count": len(proposed_list),
+                            "source": "truth-enrichment",
+                        },
+                    }
+                )
+            except Exception:  # noqa: BLE001
+                self._trace_decision(
+                    decision="search_enrichment_bridge",
+                    outcome="publish_failed",
+                    metadata={"entity_id": str(entity_id)},
+                )
+
         return {
             "service": self.service_name,
             "entity_id": entity_id,

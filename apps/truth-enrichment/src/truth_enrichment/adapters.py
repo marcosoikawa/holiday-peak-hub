@@ -211,6 +211,7 @@ class EnrichmentAdapters:
     dam: DAMImageAnalysisAdapter = field(default_factory=DAMImageAnalysisAdapter)
     image_analysis: DAMImageAnalysisAdapter | None = None
     hitl_publisher: EventHubPublisher = field(default_factory=EventHubPublisher)
+    search_enrichment_publisher: EventHubPublisher | None = None
 
     def __post_init__(self) -> None:
         if self.image_analysis is not None:
@@ -241,7 +242,10 @@ def build_enrichment_adapters() -> EnrichmentAdapters:
     else:
         products = ProductStoreAdapter()
 
+    search_enrichment_publisher = EventHubPublisher(topic="search-enrichment-jobs")
+
     return EnrichmentAdapters(
         products=products,
         dam=DAMImageAnalysisAdapter(max_images=max_images),
+        search_enrichment_publisher=search_enrichment_publisher,
     )

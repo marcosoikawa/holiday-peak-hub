@@ -2168,6 +2168,41 @@ function mapReviewStatusToEnrichmentStatus(status: string | null): 'pending' | '
   return 'pending';
 }
 
+function buildEnrichmentMonitorEmptyPayload(
+  upstreamPath: string,
+): EnrichmentMonitorFallbackPayload {
+  const generatedAt = new Date().toISOString();
+
+  const detailMatch = upstreamPath.match(/^\/api\/admin\/enrichment-monitor\/([^/]+)$/);
+  if (detailMatch && detailMatch[1]) {
+    const entityId = decodeURIComponent(detailMatch[1]);
+    return {
+      entity_id: entityId,
+      title: entityId,
+      status: 'unknown',
+      confidence: 0,
+      source_assets: [],
+      image_evidence: [],
+      attribute_diffs: [],
+      diffs: [],
+      reasoning: '',
+      trace_id: null,
+    };
+  }
+
+  return {
+    status_cards: [
+      { label: 'Pending review', value: 0 },
+      { label: 'Approved', value: 0 },
+      { label: 'Rejected', value: 0 },
+      { label: 'Active jobs', value: 0 },
+    ],
+    active_jobs: [],
+    error_log: [],
+    throughput: { per_minute: 0, last_10m: 0, failed_last_10m: 0 },
+  };
+}
+
 async function buildEnrichmentMonitorSecondaryPayload(
   upstreamPath: string,
   {
@@ -2398,6 +2433,71 @@ async function proxyRequest(
   const requestHeaders = new Headers(request.headers);
   requestHeaders.delete('host');
   requestHeaders.delete('content-length');
+
+  // ── Enrichment-monitor: route directly to truth-hitl (skip CRUD) ──────────
+  // The enrichment monitor data lives in the truth-hitl service, not the CRUD
+  // service.  Routing through CRUD first always 404s and wastes a round-trip.
+  if (isEnrichmentMonitorRoute(upstreamPath)) {
+    if (method === 'GET') {
+      const enrichmentPayload = await buildEnrichmentMonitorSecondaryPayload(upstreamPath, {
+        baseUrl,
+        requestHeaders,
+      });
+
+      if (enrichmentPayload !== null) {
+        return NextResponse.json(enrichmentPayload, {
+          status: 200,
+          headers: {
+            'x-holiday-peak-proxy': 'next-app-api',
+            'x-holiday-peak-proxy-source': sourceKey ?? '',
+            'x-holiday-peak-proxy-primary': 'truth-hitl-direct',
+          },
+        });
+      }
+
+      // truth-hitl unreachable — return a valid empty dashboard so the UI
+      // renders the empty state instead of a permanent loading spinner.
+      return NextResponse.json(
+        buildEnrichmentMonitorEmptyPayload(upstreamPath),
+        {
+          status: 200,
+          headers: {
+            'x-holiday-peak-proxy': 'next-app-api',
+            'x-holiday-peak-proxy-source': sourceKey ?? '',
+            'x-holiday-peak-proxy-fallback': 'enrichment-monitor-empty',
+          },
+        },
+      );
+    }
+
+    // POST/PUT/DELETE — forward enrichment decisions to truth-hitl directly.
+    const reviewBaseUrl = baseUrl ? `${baseUrl}/agents/truth-hitl/review` : null;
+    if (reviewBaseUrl) {
+      const decisionMatch = upstreamPath.match(
+        /^\/api\/admin\/enrichment-monitor\/([^/]+)\/decision$/,
+      );
+      if (decisionMatch && decisionMatch[1]) {
+        const entityId = decodeURIComponent(decisionMatch[1]);
+        const body = await request.arrayBuffer();
+        let parsed: Record<string, unknown> = {};
+        try {
+          parsed = JSON.parse(new TextDecoder().decode(body)) as Record<string, unknown>;
+        } catch { /* fall through with empty */ }
+        const action = typeof parsed.action === 'string' ? parsed.action : 'approve';
+        const hitlUrl = `${reviewBaseUrl}/${encodeURIComponent(entityId)}/${action}`;
+        const result = await postJsonIfOk(hitlUrl, requestHeaders, parsed);
+        if (result !== null) {
+          return NextResponse.json(result, {
+            status: 200,
+            headers: {
+              'x-holiday-peak-proxy': 'next-app-api',
+              'x-holiday-peak-proxy-primary': 'truth-hitl-direct',
+            },
+          });
+        }
+      }
+    }
+  }
 
   const body = method === 'GET' || method === 'HEAD' ? undefined : await request.arrayBuffer();
   const endpointFallbackStrategy = resolveEndpointFallbackStrategy(method, upstreamPath);

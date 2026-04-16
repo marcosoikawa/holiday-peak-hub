@@ -24,6 +24,11 @@ type ChatEntry = {
     intelligent: ProductPreview[];
     keyword: ProductPreview[];
   };
+  trace?: {
+    mode: string;
+    timeMs: number;
+    resultCount: number;
+  };
 };
 
 const DEFAULT_PROMPT = 'Find similar products to premium wireless noise-cancelling headphones under 300';
@@ -35,6 +40,39 @@ const QUICK_PROMPTS = [
   'Office chairs with lumbar support under 300',
   'Compact smart speakers for small rooms',
 ];
+
+const TraceDetail: React.FC<{ trace: NonNullable<ChatEntry['trace']> }> = ({ trace }) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-expanded={isOpen}
+        className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline decoration-dotted underline-offset-2 focus:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded"
+      >
+        {isOpen ? 'Hide trace' : 'Show trace'}
+      </button>
+      {isOpen && (
+        <dl className="mt-1 grid grid-cols-3 gap-x-3 text-[10px] text-gray-400 dark:text-gray-500">
+          <div>
+            <dt className="font-semibold">Mode</dt>
+            <dd className="font-mono">{trace.mode}</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">Time</dt>
+            <dd className="font-mono">{trace.timeMs}ms</dd>
+          </div>
+          <div>
+            <dt className="font-semibold">Results</dt>
+            <dd className="font-mono">{trace.resultCount}</dd>
+          </div>
+        </dl>
+      )}
+    </div>
+  );
+};
 
 export const ChatWidget: React.FC = () => {
   const pathname = usePathname();
@@ -141,6 +179,7 @@ export const ChatWidget: React.FC = () => {
     const agentMessageId = `${Date.now()}-agent`;
     let intelligentPreview: ProductPreview[] = [];
     let streamedAnswer = '';
+    const searchStartTime = performance.now();
 
     try {
       // Start keyword search (non-streaming) and intelligent search (streaming) in parallel
@@ -192,6 +231,10 @@ export const ChatWidget: React.FC = () => {
       const finalText = streamedAnswer
         || 'Agent retrieval is tuned for intent and relevance context. Compare the two lists below.';
 
+      const elapsedMs = Math.round(performance.now() - searchStartTime);
+      const totalResults = intelligentPreview.length + keywordPreview.length;
+      const searchMode = intelligentPreview.length > 0 ? 'hybrid' : 'keyword';
+
       setMessages((prev) => {
         const filtered = prev.filter((m) => m.id !== agentMessageId);
         return [
@@ -203,6 +246,11 @@ export const ChatWidget: React.FC = () => {
             comparison: {
               intelligent: intelligentPreview,
               keyword: keywordPreview,
+            },
+            trace: {
+              mode: searchMode,
+              timeMs: elapsedMs,
+              resultCount: totalResults,
             },
           },
         ];
@@ -375,6 +423,8 @@ export const ChatWidget: React.FC = () => {
                     </div>
                   </div>
                 ) : null}
+
+                {m.role === 'agent' && m.trace ? <TraceDetail trace={m.trace} /> : null}
               </div>
             </div>
           ))}
