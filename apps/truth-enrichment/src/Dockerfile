@@ -35,6 +35,9 @@ COPY . ./
 ENV PYTHONPATH=/app/src
 ENV PATH="/app/src/.venv/bin:$PATH"
 RUN uv sync --frozen --no-dev
+RUN uv pip install --reinstall --no-deps agent-framework-core
+COPY holiday_peak_lib-0.2.1-py3-none-any.whl /tmp/
+RUN uv pip install --force-reinstall --no-deps /tmp/holiday_peak_lib-0.2.1-py3-none-any.whl
 
 FROM python:${PYTHON_VERSION} AS prod
 ARG APP_UID=10001
@@ -50,5 +53,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends libpq5 \
     && rm -rf /var/lib/apt/lists/*
 COPY --from=prod-builder /app /app
 RUN chown -R appuser:appgroup /app
+ENV WEB_CONCURRENCY=2
 USER appuser
-CMD ["uvicorn", "truth_enrichment.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["sh", "-c", "uvicorn truth_enrichment.main:app --host 0.0.0.0 --port 8000 --workers ${WEB_CONCURRENCY:-4}"]

@@ -411,6 +411,9 @@ add_env_arg "COSMOS_AUDIT_CONTAINER" "$COSMOS_AUDIT_CONTAINER_VALUE"
 add_env_arg "BLOB_ACCOUNT_URL" "${BLOB_ACCOUNT_URL:-}"
 add_env_arg "BLOB_CONTAINER" "${BLOB_CONTAINER:-}"
 
+# Runtime tuning
+add_env_arg "WEB_CONCURRENCY" "${WEB_CONCURRENCY:-2}"
+
 # Observability
 add_env_arg "APPLICATIONINSIGHTS_CONNECTION_STRING" "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}"
 
@@ -439,6 +442,7 @@ if is_truth_service; then
     truth-enrichment)
       add_env_arg "TRUTH_EVENT_HUB_NAME" "${TRUTH_EVENT_HUB_NAME:-enrichment-jobs}"
       add_env_arg "TRUTH_EVENT_HUB_CONSUMER_GROUP" "${TRUTH_EVENT_HUB_CONSUMER_GROUP:-enrichment-engine}"
+      add_env_arg "TRUTH_PRODUCT_BLOB_CONTAINER" "${TRUTH_PRODUCT_BLOB_CONTAINER:-products}"
       ;;
     truth-export)
       add_env_arg "TRUTH_EVENT_HUB_NAME" "${TRUTH_EVENT_HUB_NAME:-export-jobs}"

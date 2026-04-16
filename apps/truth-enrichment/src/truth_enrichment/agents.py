@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any
 
-from holiday_peak_lib.adapters import BaseCRUDAdapter
 from holiday_peak_lib.agents import BaseRetailAgent
 from holiday_peak_lib.agents.base_agent import AgentDependencies
 from holiday_peak_lib.agents.fastapi_mcp import FastAPIMCPServer
+from holiday_peak_lib.agents.registration_helpers import (
+    get_agent_adapters,
+    register_crud_tools,
+)
 from holiday_peak_lib.evaluation import (
     confidence_calibration_bins,
     enrichment_precision_recall_f1,
@@ -227,20 +229,13 @@ def register_mcp_tools(mcp: FastAPIMCPServer, agent: BaseRetailAgent) -> None:
         attribute_id = payload.get("attribute_id")
         if not attribute_id:
             return {"error": "attribute_id is required"}
-        adapters: EnrichmentAdapters = getattr(agent, "adapters", build_enrichment_adapters())
+        adapters: EnrichmentAdapters = get_agent_adapters(agent, build_enrichment_adapters)
         result = await adapters.proposed.get(str(attribute_id))
         return {"attribute": result}
 
     mcp.add_tool("/enrich/product", ingest_product)
     mcp.add_tool("/enrich/status", get_enrichment_status)
-    _register_crud_tools(mcp)
-
-
-def _register_crud_tools(mcp: FastAPIMCPServer) -> None:
-    crud_url = os.getenv("CRUD_SERVICE_URL")
-    if not crud_url:
-        return
-    BaseCRUDAdapter(crud_url).register_mcp_tools(mcp)
+    register_crud_tools(mcp)
 
 
 def _detect_gaps(product: dict[str, Any], schema: dict[str, Any] | None) -> list[str]:

@@ -167,7 +167,7 @@ type AdminServiceActivityRow = {
   event: string;
   entity: string;
   status: 'ok' | 'warning' | 'error' | 'unknown';
-  latency_ms: number;
+  latency_ms: number | null;
 };
 
 type AdminServiceModelUsageRow = {
@@ -1822,9 +1822,8 @@ async function buildAdminServiceSecondaryPayload(params: {
       || readString(entry, ['entity_id', 'id'])
       || route.agentService;
     const latency =
-      readNumber(metadata, ['latency_ms', 'duration_ms'])
-      || readNumber(entry, ['latency_ms', 'duration_ms'])
-      || 0;
+      readNumber(metadata, ['latency_ms', 'duration_ms', 'elapsed_ms'])
+      ?? readNumber(entry, ['latency_ms', 'duration_ms']);
     const id =
       readString(metadata, ['trace_id', 'id'])
       || readString(entry, ['trace_id', 'id'])
@@ -1842,8 +1841,11 @@ async function buildAdminServiceSecondaryPayload(params: {
 
   const errorCount = activity.filter((row) => row.status === 'error').length;
   const totalCount = activity.length;
+  const measuredRows = activity.filter((row) => row.latency_ms != null);
   const averageLatency =
-    totalCount > 0 ? Math.round(activity.reduce((sum, row) => sum + row.latency_ms, 0) / totalCount) : 0;
+    measuredRows.length > 0
+      ? Math.round(measuredRows.reduce((sum, row) => sum + (row.latency_ms as number), 0) / measuredRows.length)
+      : 0;
   const errorRate = totalCount > 0 ? errorCount / totalCount : 0;
   const evaluationScore = readNumber(latestEvaluation, ['overall_score', 'score', 'quality_score', 'accuracy']) || 0;
   const metricsEnabled = typeof metrics?.enabled === 'boolean' ? metrics.enabled : totalCount > 0;

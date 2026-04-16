@@ -287,10 +287,12 @@ class TestBaseRetailAgent:
         deps = AgentDependencies(slm=slm_target, llm=None, service_name="trace-test")
         agent = SimpleTestAgent(config=deps)
 
-        import holiday_peak_lib.agents.base_agent as base_agent_mod
+        import holiday_peak_lib.agents.telemetry_mixin as telemetry_mixin_mod
 
         monkeypatch = pytest.MonkeyPatch()
-        monkeypatch.setattr(base_agent_mod, "get_foundry_tracer", lambda _service: _MockTracer())
+        monkeypatch.setattr(
+            telemetry_mixin_mod, "get_foundry_tracer", lambda _service: _MockTracer()
+        )
         try:
             await agent.invoke_model(
                 {"query": "test"},
