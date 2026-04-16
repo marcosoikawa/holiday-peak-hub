@@ -23,12 +23,7 @@ function buildStorageKey(pathname: string): string {
 }
 
 function generateSessionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  const hex = Date.now().toString(16);
-  const rand = Math.random().toString(16).slice(2, 10);
-  return `${hex}-${rand}`;
+  return crypto.randomUUID();
 }
 
 function readOrCreatePageSessionId(pathname: string): string {

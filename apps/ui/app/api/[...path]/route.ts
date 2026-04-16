@@ -2198,8 +2198,6 @@ function mapReviewStatusToEnrichmentStatus(status: string | null): 'pending' | '
 function buildEnrichmentMonitorEmptyPayload(
   upstreamPath: string,
 ): EnrichmentMonitorFallbackPayload {
-  const generatedAt = new Date().toISOString();
-
   const detailMatch = upstreamPath.match(/^\/api\/admin\/enrichment-monitor\/([^/]+)$/);
   if (detailMatch && detailMatch[1]) {
     const entityId = decodeURIComponent(detailMatch[1]);
