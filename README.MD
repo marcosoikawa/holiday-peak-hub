@@ -2,6 +2,8 @@
 
 Agent-driven retail accelerator for building and operating intelligent, cloud-native retail services with a shared framework and domain-focused apps.
 
+[![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/marcosoikawa/holiday-peak-hub)
+
 [![Release](https://img.shields.io/github/v/release/Azure-Samples/holiday-peak-hub?display_name=tag&include_prereleases&sort=semver)](https://github.com/Azure-Samples/holiday-peak-hub/releases)
 [![Pre-release](https://img.shields.io/badge/channel-unstable-orange)](https://github.com/Azure-Samples/holiday-peak-hub/releases/tag/v2.1.0-unstable.0)
 [![CI](https://img.shields.io/github/actions/workflow/status/Azure-Samples/holiday-peak-hub/ci.yml?branch=main&label=ci)](https://github.com/Azure-Samples/holiday-peak-hub/actions/workflows/ci.yml)
@@ -19,6 +21,24 @@ Agent-driven retail accelerator for building and operating intelligent, cloud-na
 - [Provisioning & deployment (azd)](.infra/README.md)
 - [Implementation roadmap](docs/IMPLEMENTATION_ROADMAP.md)
 - [Changelog](CHANGELOG.md)
+
+## Fast start (GitHub Codespaces)
+
+The repository ships with a fully configured dev container. Click the badge above or:
+
+1. Go to **Code → Codespaces → Create codespace on main**.
+2. Wait for the container to build (first time ~3–5 min — tools, Python packages, and UI deps are installed automatically).
+3. Open a terminal and run any service:
+
+```bash
+# CRUD service
+uvicorn crud_service.main:app --reload --port 8000 --app-dir apps/crud-service/src
+
+# UI (separate terminal)
+cd apps/ui && yarn dev
+```
+
+> The devcontainer includes Python 3.13, Node 20, Yarn, Azure CLI, Azure Developer CLI (`azd`), Docker-in-Docker, kubectl/helm, and all project dependencies.
 
 ## Fast start (local)
 
